@@ -1,0 +1,44 @@
+[
+  {
+    "objectID": "notes/2025-09-14.html",
+    "href": "notes/2025-09-14.html",
+    "title": "Lobbyregister 101 – Wer will was von der Bundespolitik?",
+    "section": "",
+    "text": "Das Lobbyregister ist eine ziemlich spannende Datenquelle."
+  },
+  {
+    "objectID": "notes/2025-09-14.html#worum-gehts",
+    "href": "notes/2025-09-14.html#worum-gehts",
+    "title": "Lobbyregister 101 – Wer will was von der Bundespolitik?",
+    "section": "Worum geht’s?",
+    "text": "Worum geht’s?\nOffizielle Dokumentation: https://www.lobbyregister.bundestag.de/informationen-und-hilfe/open-data-1049716"
+  },
+  {
+    "objectID": "notes/2025-09-14.html#datenverarbeitungshilfe",
+    "href": "notes/2025-09-14.html#datenverarbeitungshilfe",
+    "title": "Lobbyregister 101 – Wer will was von der Bundespolitik?",
+    "section": "Datenverarbeitungshilfe",
+    "text": "Datenverarbeitungshilfe\n\n1. Download\nAlle Registereinträge lokal speichern:\nimport requests\nimport json\nimport time\n\nRAW_DIR = \"data/raw\"\n\napikey = \"5bHB2zrUuHR6YdPoZygQhWfg2CBrjUOi\" # Quelle: https://www.lobbyregister.bundestag.de/informationen-und-hilfe/open-data-1049716; Stand 14.09.2025\n\nurl = \"https://api.lobbyregister.bundestag.de/rest/v2/registerentries\"\nparams = {\n    \"apikey\": apikey\n}\nresponse = requests.get(url, params=params)\nresponse.raise_for_status()\ndata = response.json()\n\nwith open(f'{RAW_DIR}/data_0.json', 'w') as file:\n    json.dump(data, file)\n\ncursor = data.get(\"cursor\")\n\ni = 1\n\nwhile True:\n    print(i)\n    url = \"https://api.lobbyregister.bundestag.de/rest/v2/registerentries\"\n    params = {\n        \"cursor\": cursor,\n        \"apikey\": apikey\n    }\n    response = requests.get(url, params=params)\n    response.raise_for_status()\n    data = response.json()\n\n    with open(f'{RAW_FOLDER}/data_{i:02d}.json', 'w') as file:\n        json.dump(data, file)\n\n    if data['resultCount'] == 0:\n        break\n\n    cursor = data['cursor']\n    \n    time.sleep(1)\n    i += 1\n\n\n2. Kennenlernen\nErstmal die erste Datei öffnen: Wie viele results-Einträge gibt es?\nimport json\n\nwith open(f'data_0.json', 'r') as file:\n    data = json.load(file)\n    \nfor result in data['results'][:1]:\n    print(len(str(result)))\n\n\n3. Nutzbar machen\n\njsonl-Datei\nUns interessieren vor allem die einzelnen results Einträge. Deshalb schreiben wir alle in eine Datei – im jsonl-Format, also ein JSON-Object pro Zeile. Hat den Vorteil, dass man das entweder zeilenweise einlesen oder auch direkt auf der Kommandozeile beispielsweise mit head -n 1 full.jsonl nur die erste Zeile ausgeben lassen kann.\nfrom pathlib import Path\nimport json\n\nJSONL_FILE = \"full.jsonl\"\nRAW_DIR = \"data/raw\"\n\nwith open(JSONL_FILE, 'w', encoding='utf-8') as out_file:\n    for file in Path(RAW_FOLDER).glob('*.json'):\n        with open(file, 'r', encoding='utf-8') as in_file:\n            data = json.load(in_f)\n            for result in data['results']:\n                out_file(json.dumps(result) + '\\n')\n\n\ncsv-Datei\nIch arbeite gerne mit tabellarisch strukturierten Daten, deshalb wandle ich die jsonl-Datei in eine csv-Datei um – mit Fokus auf de für mich spannendsten Keys.\nimport json\nimport csv\n\nCSV_FILE = 'data/processed/lobbyregister.csv'\n\nkeys_to_extract = [\"registerNumber\",\"registerEntryDetails.registerEntryId\",\"registerEntryDetails.legislation\",\"accountDetails.accountHasCodexViolations\",\"lobbyistIdentity.identity\",\"lobbyistIdentity.name\",\"lobbyistIdentity.legalFormType.de\",\"lobbyistIdentity.legalForm.de\",\"lobbyistIdentity.address.city\",\"lobbyistIdentity.capitalCityRepresentationPresent\",\"lobbyistIdentity.legalRepresentatives\",\"lobbyistIdentity.entrustedPersons\",\"lobbyistIdentity.memberships\",\"activitiesAndInterests.typesOfExercisingLobbyWork.de\",\"activitiesAndInterests.fieldsOfInterest.de\",\"employeesInvolvedInLobbying.employeeFTE\",\"financialExpenses.financialExpensesEuro.to\",\"publicAllowances.publicAllowancesPresent\",\"donators.totalDonationsEuro.to\",\"membershipFees.totalMembershipFees.to\",\"membershipFees.individualContributorsPresent\",\"regulatoryProjects.regulatoryProjectsCount\",\"contracts.contractsCount\"]\n\ndef get_nested(data, key_path):\n    keys = key_path.split('.')\n    for key in keys:\n        if isinstance(data, dict):\n            data = data.get(key, '')\n        else:\n            return ''  # leerer string, wenn Pfad ungültig\n    if isinstance(data, list):\n        return len(data)\n    return data\n\nwith open(JSONL_FILE, 'r', encoding='utf-8') as jsonl_f, \\\n     open(CSV_FILE, 'w', newline='', encoding='utf-8') as csv_f:\n\n    writer = csv.DictWriter(csv_f, fieldnames=keys_to_extract)\n    writer.writeheader()\n\n    for line in jsonl_f:\n        obj = json.loads(line)\n        row = {key: get_nested(obj, key) for key in keys_to_extract}\n        writer.writerow(row)\n\n\n\n4. Analysieren\nIch bin gewohnt, strukturierte Daten mit Pandas in einem Jupyter Notebook auszuwerten. Deshalb auch hier ein paar Code-Zeilen dazu.\nimport pandas as pd\n\nCSV_FILE = \"data/processed/lobbyregister.csv\"\n\ndf = pd.read_csv(CSV_FILE)\n\n# Wie viele Verstöße gegen den Verhaltenskodex gab es bisher?\n\ndf['accountDetails.accountHasCodexViolations'].value_counts()\n\n# Welche?\n\ndf[df['accountDetails.accountHasCodexViolations'] == True]\n\n# \"Echter\" Mensch oder Organisation?\n\ndf['lobbyistIdentity.identity'].value_counts()\n\n..."
+  },
+  {
+    "objectID": "toolbox.html",
+    "href": "toolbox.html",
+    "title": "Toolbox",
+    "section": "",
+    "text": "to be created…"
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "As a data journalist, I build bridges every day by moving between political debates, reporting, producing audio and video, and processing, exploring, analysing and visualising data. Sometimes, I get lost along the way.\nThat’s why all my important notes and guidance need a cozy place for quick reference. Feel free to use this knowledge too!\nIf you would like to get in touch, find me on Mastodon or send an E-Mail to mail at my nickname dot de."
+  },
+  {
+    "objectID": "notes.html",
+    "href": "notes.html",
+    "title": "Notes",
+    "section": "",
+    "text": "Lobbyregister 101 – Wer will was von der Bundespolitik?\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nNo matching items"
+  }
+]
